@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Meme MVP</title>
+<style>
+  body { background:#222; color:#fff; font-family: Arial, sans-serif; padding:20px; }
+  textarea { width:300px; height:100px; }
+</style>
+</head>
+<body>
+<h1>Meme Submission MVP</h1>
+<p>Connect to Phantom wallet first.</p>
+<button id="connectBtn">Connect Wallet</button>
+<p id="walletStatus">Wallet: Not connected</p>
+
+<h2>Submit Meme</h2>
+<textarea id="memeInput" placeholder="Enter meme text (min 10 chars)"></textarea><br/><br/>
+<button id="submitMemeBtn">Submit Meme</button>
+<p id="submissionStatus"></p>
+
+<h2>Upvote Meme</h2>
+<input type="text" id="submissionIdInput" placeholder="Submission ID" style="width:300px;"/><br/><br/>
+<button id="upvoteBtn">Upvote</button>
+<p id="upvoteStatus"></p>
+
+<!-- Import Solana Web3.js -->
+<script src="https://unpkg.com/@solana/web3.js@1.78.3/lib/index.iife.js"></script>
+<script>
+let userPublicKey = null;
+const backendUrl = 'http://localhost:3000'; // Adjust if needed
+const connectBtn = document.getElementById('connectBtn');
+const walletStatus = document.getElementById('walletStatus');
+const submitMemeBtn = document.getElementById('submitMemeBtn');
+const memeInput = document.getElementById('memeInput');
+const submissionStatus = document.getElementById('submissionStatus');
+const upvoteBtn = document.getElementById('upvoteBtn');
+const submissionIdInput = document.getElementById('submissionIdInput');
+const upvoteStatus = document.getElementById('upvoteStatus');
+const connection = new solanaWeb3.Connection('https://api.mainnet-beta.solana.com', 'confirmed');
+
+connectBtn.onclick = async () => {
+  if (window.solana && window.solana.isPhantom) {
+    try {
+      const resp = await window.solana.connect();
+      userPublicKey = resp.publicKey.toString();
+      walletStatus.innerText = "Wallet: " + userPublicKey;
+    } catch (e) {
+      console.error(e);
+      walletStatus.innerText = "Failed to connect wallet";
+    }
+  } else {
+    alert("Phantom wallet not found. Install Phantom extension.");
+  }
+};
+
+submitMemeBtn.onclick = async () => {
+  submissionStatus.innerText = "";
+  if (!userPublicKey) {
+    alert("Connect wallet first");
+    return;
+  }
+  const memo = memeInput.value.trim();
+  if (memo.length < 10) {
+    alert("Meme too short!");
+    return;
+  }
+
+  const res = await fetch(backendUrl+'/submit-meme', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({memo, userPubKey:userPublicKey})
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    submissionStatus.innerText = "Error: " + data.message;
+    return;
+  }
+
+  const {txBase64, submissionId, mint} = data;
+
+  // Decode as legacy Transaction
+  const txBytes = Uint8Array.from(atob(txBase64), c => c.charCodeAt(0));
+  let transaction;
+  try {
+    transaction = solanaWeb3.Transaction.from(txBytes);
+  } catch (e) {
+    alert("This transaction could not be decoded as a legacy Transaction. " +
+          "Phantom might not support signing this versioned transaction.");
+    return;
+  }
+
+  // Sign transaction
+  const signed = await window.solana.signTransaction(transaction);
+
+  // Send transaction
+  const signature = await connection.sendRawTransaction(signed.serialize());
+  await connection.confirmTransaction(signature, 'confirmed');
+
+  // Confirm creation with backend
+  const confirmRes = await fetch(backendUrl+'/confirm-creation', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({submissionId, txSignature: signature, mintAddress:mint})
+  });
+  const confirmData = await confirmRes.json();
+  if (!confirmRes.ok) {
+    submissionStatus.innerText = "Error: " + confirmData.message;
+    return;
+  }
+
+  submissionStatus.innerText = "Meme submission completed and active! Submission ID: " + submissionId;
+};
+
+upvoteBtn.onclick = async () => {
+  upvoteStatus.innerText = "";
+  if (!userPublicKey) {
+    alert("Connect wallet first");
+    return;
+  }
+  const submissionId = submissionIdInput.value.trim();
+  if (!submissionId) {
+    alert("Enter a submission ID first.");
+    return;
+  }
+
+  const res = await fetch(backendUrl+'/upvote', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({submissionId, userPubKey:userPublicKey})
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    upvoteStatus.innerText = "Error: " + data.message;
+    return;
+  }
+
+  const txBase64 = data.txBase64;
+  const txBytes = Uint8Array.from(atob(txBase64), c => c.charCodeAt(0));
+  let transaction;
+  try {
+    transaction = solanaWeb3.Transaction.from(txBytes);
+  } catch (e) {
+    alert("This upvote transaction could not be decoded as legacy Transaction. " +
+          "Phantom might not support signing this versioned transaction.");
+    return;
+  }
+
+  const signed = await window.solana.signTransaction(transaction);
+  const signature = await connection.sendRawTransaction(signed.serialize());
+  await connection.confirmTransaction(signature, 'confirmed');
+
+  // Confirm upvote
+  const confUpvote = await fetch(backendUrl+'/confirm-upvote', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({submissionId, userPubKey:userPublicKey, txSignature: signature})
+  });
+
+  const confData = await confUpvote.json();
+  if (!confUpvote.ok) {
+    upvoteStatus.innerText = "Error: " + confData.message;
+    return;
+  }
+
+  upvoteStatus.innerText = "Upvote recorded!";
+};
+</script>
+</body>
+</html>
