@@ -1,239 +1,317 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Meme Submission MVP</title>
-<style>
-  body { background:#222; color:#fff; font-family: Arial, sans-serif; padding:20px; }
-  textarea { width:300px; height:100px; }
-</style>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Meme Submission MVP</title>
+  <style>
+    body { background:#222; color:#fff; font-family: Arial, sans-serif; padding:20px; }
+    textarea { width:300px; height:100px; }
+  </style>
 </head>
 <body>
-<h1>Meme Submission MVP</h1>
-<p>Connect to Phantom wallet first.</p>
-<button id="connectBtn">Connect Wallet</button>
-<p id="walletStatus">Wallet: Not connected</p>
-
-<h2>Submit Meme</h2>
-<textarea id="memeInput" placeholder="Enter meme text (min 10 chars)"></textarea><br/><br/>
-<button id="submitMemeBtn">Submit Meme</button>
-<p id="submissionStatus"></p>
-
-<h2>Upvote Meme</h2>
-<input type="text" id="submissionIdInput" placeholder="Submission ID" style="width:300px;"/><br/><br/>
-<button id="upvoteBtn">Upvote</button>
-<p id="upvoteStatus"></p>
-
-<!-- Using the IIFE build of web3.js -->
-<script src="https://unpkg.com/@solana/web3.js@1.78.3/lib/index.iife.js"></script>
-<script>
-let userPublicKey = null;
-const backendUrl = 'http://localhost:3000';
-
-// Helper: Convert ArrayBuffer to base64
-function arrayBufferToBase64(buffer) {
-  let binary = '';
-  let bytes = new Uint8Array(buffer);
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
-
-const connectBtn = document.getElementById('connectBtn');
-const walletStatus = document.getElementById('walletStatus');
-const submitMemeBtn = document.getElementById('submitMemeBtn');
-const memeInput = document.getElementById('memeInput');
-const submissionStatus = document.getElementById('submissionStatus');
-const upvoteBtn = document.getElementById('upvoteBtn');
-const submissionIdInput = document.getElementById('submissionIdInput');
-const upvoteStatus = document.getElementById('upvoteStatus');
-
-connectBtn.onclick = async () => {
-  if (window.solana && window.solana.isPhantom) {
-    try {
-      const resp = await window.solana.connect();
-      userPublicKey = resp.publicKey.toString();
-      walletStatus.innerText = "Wallet: " + userPublicKey;
-    } catch (e) {
-      console.error(e);
-      walletStatus.innerText = "Failed to connect wallet";
+  <h1>Meme Submission MVP</h1>
+  <p>Connect to Phantom wallet first.</p>
+  <button id="connectBtn">Connect Wallet</button>
+  <p id="walletStatus">Wallet: Not connected</p>
+  
+  <h2>Submit Meme</h2>
+  <textarea id="memeInput" placeholder="Enter meme text (min 10 chars)"></textarea><br/><br/>
+  <button id="submitMemeBtn">Submit Meme</button>
+  <p id="submissionStatus"></p>
+  
+  <h2>Upvote Meme</h2>
+  <input type="text" id="submissionIdInput" placeholder="Submission ID" style="width:300px;"/><br/><br/>
+  <button id="upvoteBtn">Upvote</button>
+  <p id="upvoteStatus"></p>
+  
+  <!-- Using the IIFE build of web3.js -->
+  <script src="https://unpkg.com/@solana/web3.js@1.78.3/lib/index.iife.js"></script>
+  <script>
+    let userPublicKey = null;
+    const backendUrl = 'http://localhost:3000'; // Ensure this is correct
+    
+    // Helper: Convert ArrayBuffer to base64
+    function arrayBufferToBase64(buffer) {
+      let binary = '';
+      let bytes = new Uint8Array(buffer);
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary);
     }
-  } else {
-    alert("Phantom wallet not found. Install Phantom extension.");
-  }
-};
-
-async function signAndSendVersionedTransaction(txBase64) {
-  const txBytes = Uint8Array.from(atob(txBase64), c => c.charCodeAt(0));
-  const versionedTx = solanaWeb3.VersionedTransaction.deserialize(txBytes);
-
-  // Attempt to sign and send directly
-  // If Phantom doesn't support this, you'll get an error
-  const { signature } = await window.solana.signAndSendTransaction({
-    transaction: versionedTx
-  });
-
-  return { signature, versionedTx };
-}
-
-submitMemeBtn.onclick = async () => {
-  submissionStatus.innerText = "";
-  if (!userPublicKey) {
-    alert("Connect wallet first");
-    return;
-  }
-
-  const memo = memeInput.value.trim();
-  if (memo.length < 10) {
-    alert("Meme too short!");
-    return;
-  }
-
-  const submissionId = crypto.randomUUID();
-  const mintKeypair = solanaWeb3.Keypair.generate();
-  const mintPubkeyStr = mintKeypair.publicKey.toBase58();
-  const tokenName = 'MemeToken-' + submissionId.substring(0,5);
-
-  const payload = {
-    publicKey: userPublicKey,
-    action: 'create',
-    tokenMetadata: {
-      name: tokenName,
-      symbol: 'MEME',
-      uri: 'https://example.com/metadata.json'
-    },
-    mint: mintPubkeyStr,
-    denominatedInSol: 'true',
-    amount: 0.01,
-    slippage: 10,
-    priorityFee: 0.0005,
-    pool: 'pump'
-  };
-
-  let pumpRes;
-  try {
-    pumpRes = await fetch('https://pumpportal.fun/api/trade-local', {
-      method: 'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(payload)
-    });
-  } catch (e) {
-    console.error(e);
-    submissionStatus.innerText = "Error fetching from PumpPortal";
-    return;
-  }
-
-  if (!pumpRes.ok) {
-    const errTxt = await pumpRes.text();
-    console.error('PumpPortal Error:', errTxt);
-    submissionStatus.innerText = "PumpPortal Error: " + errTxt;
-    return;
-  }
-
-  const txBytes = await pumpRes.arrayBuffer();
-  const txBase64 = arrayBufferToBase64(txBytes);
-
-  let signature;
-  try {
-    ({ signature } = await signAndSendVersionedTransaction(txBase64));
-  } catch (e) {
-    console.error(e);
-    submissionStatus.innerText = "Error signing/sending transaction.";
-    return;
-  }
-
-  const confirmRes = await fetch(backendUrl+'/confirm-creation', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({submissionId, txSignature: signature, mintAddress: mintPubkeyStr, memo})
-  });
-  const confirmData = await confirmRes.json();
-  if (!confirmRes.ok) {
-    submissionStatus.innerText = "Error: " + confirmData.message;
-    return;
-  }
-
-  submissionStatus.innerText = "Meme submission completed and active! Submission ID: " + submissionId;
-};
-
-upvoteBtn.onclick = async () => {
-  upvoteStatus.innerText = "";
-  if (!userPublicKey) {
-    alert("Connect wallet first");
-    return;
-  }
-
-  const submissionId = submissionIdInput.value.trim();
-  if (!submissionId) {
-    alert("Enter a submission ID");
-    return;
-  }
-
-  const mintAddress = prompt("Enter the token mint address for this meme:");
-  if (!mintAddress) {
-    alert("No mint address provided.");
-    return;
-  }
-
-  const buyPayload = {
-    publicKey: userPublicKey,
-    action: 'buy',
-    mint: mintAddress,
-    amount: 0.01,
-    denominatedInSol: 'true',
-    slippage: 10,
-    priorityFee: 0.0005,
-    pool: 'pump'
-  };
-
-  let pumpRes;
-  try {
-    pumpRes = await fetch('https://pumpportal.fun/api/trade-local', {
-      method: 'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(buyPayload)
-    });
-  } catch (e) {
-    console.error(e);
-    upvoteStatus.innerText = "Error fetching upvote tx from PumpPortal";
-    return;
-  }
-
-  if (!pumpRes.ok) {
-    const errTxt = await pumpRes.text();
-    console.error('PumpPortal Buy Error:', errTxt);
-    upvoteStatus.innerText = "PumpPortal Buy Error: " + errTxt;
-    return;
-  }
-
-  const txBytes = await pumpRes.arrayBuffer();
-  const txBase64 = arrayBufferToBase64(txBytes);
-
-  let signature;
-  try {
-    ({ signature } = await signAndSendVersionedTransaction(txBase64));
-  } catch (e) {
-    console.error(e);
-    upvoteStatus.innerText = "Error signing/sending upvote transaction.";
-    return;
-  }
-
-  const confUpvote = await fetch(backendUrl+'/confirm-upvote', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({submissionId, userPubKey:userPublicKey, txSignature: signature})
-  });
-
-  const confData = await confUpvote.json();
-  if (!confUpvote.ok) {
-    upvoteStatus.innerText = "Error: " + confData.message;
-    return;
-  }
-
-  upvoteStatus.innerText = "Upvote recorded!";
-};
-</script>
+    
+    const connectBtn = document.getElementById('connectBtn');
+    const walletStatus = document.getElementById('walletStatus');
+    const submitMemeBtn = document.getElementById('submitMemeBtn');
+    const memeInput = document.getElementById('memeInput');
+    const submissionStatus = document.getElementById('submissionStatus');
+    const upvoteBtn = document.getElementById('upvoteBtn');
+    const submissionIdInput = document.getElementById('submissionIdInput');
+    const upvoteStatus = document.getElementById('upvoteStatus');
+    
+    connectBtn.onclick = async () => {
+      if (window.solana && window.solana.isPhantom) {
+        try {
+          const resp = await window.solana.connect();
+          userPublicKey = resp.publicKey.toString();
+          walletStatus.innerText = "Wallet: " + userPublicKey;
+          console.log('Connected to wallet:', userPublicKey);
+        } catch (e) {
+          console.error('Connection Error:', e);
+          walletStatus.innerText = "Failed to connect wallet";
+        }
+      } else {
+        alert("Phantom wallet not found. Install Phantom extension.");
+      }
+    };
+    
+    async function signAndSendVersionedTransaction(txBase64, mintKeypair) {
+      // Decode as VersionedTransaction
+      const txBytes = Uint8Array.from(atob(txBase64), c => c.charCodeAt(0));
+      let transaction;
+      try {
+        transaction = solanaWeb3.VersionedTransaction.deserialize(txBytes);
+        console.log('Transaction deserialized successfully.');
+      } catch (e) {
+        console.error("Error decoding transaction:", e);
+        alert("This transaction could not be decoded as a VersionedTransaction. " +
+              "Ensure that Phantom supports signing this transaction version.");
+        throw e;
+      }
+    
+      // Sign with mintKeypair if provided
+      if (mintKeypair) {
+        try {
+          transaction.sign([mintKeypair]);
+          console.log("Transaction signed with mintKeypair.");
+        } catch (e) {
+          console.error("Mint keypair signing error:", e);
+          alert("Failed to sign transaction with the mint keypair.");
+          throw e;
+        }
+      }
+    
+      // Sign with Phantom's wallet
+      try {
+        transaction = await window.solana.signTransaction(transaction);
+        console.log("Transaction signed with Phantom wallet.");
+      } catch (e) {
+        console.error("Phantom signing error:", e);
+        alert("Failed to sign transaction with Phantom wallet.");
+        throw e;
+      }
+    
+      // Send the transaction
+      const connection = new solanaWeb3.Connection("https://api.mainnet-beta.solana.com");
+      let signature;
+    
+      try {
+        signature = await connection.sendRawTransaction(transaction.serialize());
+        console.log("Transaction sent with signature:", signature);
+        await connection.confirmTransaction(signature, 'confirmed');
+        console.log("Transaction confirmed.");
+        return { signature, versionedTx: transaction };
+      } catch (e) {
+        console.error("Transaction sending error:", e);
+        alert("Failed to send transaction.");
+        throw e;
+      }
+    }
+    
+    submitMemeBtn.onclick = async () => {
+      submissionStatus.innerText = "";
+      if (!userPublicKey) {
+        alert("Connect wallet first");
+        return;
+      }
+    
+      const memo = memeInput.value.trim();
+      if (memo.length < 10) {
+        alert("Meme too short!");
+        return;
+      }
+    
+      const submissionId = crypto.randomUUID();
+      const mintKeypair = solanaWeb3.Keypair.generate();
+      const mintPubkeyStr = mintKeypair.publicKey.toBase58();
+      console.log('Generated Mint Public Key:', mintPubkeyStr);
+      console.log('Type of mintPubkeyStr:', typeof mintPubkeyStr);
+      
+      const tokenName = 'MemeToken-' + submissionId.substring(0,5);
+    
+      const payload = {
+        publicKey: userPublicKey,
+        action: 'create',
+        tokenMetadata: {
+          name: tokenName, // Dynamic token name for uniqueness
+          symbol: 'MEME',
+          uri: 'https://example.com/metadata.json' // Replace with actual metadata URI
+        },
+        mint: mintPubkeyStr, // Ensure this is a string
+        denominatedInSol: 'true',
+        amount: 0.05, // Increased amount to cover mint account funding and fees
+        slippage: 10,
+        priorityFee: 0.0005,
+        pool: 'pump'
+      };
+      
+      console.log('Payload being sent to PumpPortal:', JSON.stringify(payload, null, 2));
+    
+      let pumpRes;
+      try {
+        pumpRes = await fetch('https://pumpportal.fun/api/trade-local', {
+          method: 'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(payload)
+        });
+        console.log('PumpPortal response status:', pumpRes.status);
+      } catch (e) {
+        console.error('Fetch Error:', e);
+        submissionStatus.innerText = "Error fetching from PumpPortal";
+        return;
+      }
+    
+      if (!pumpRes.ok) {
+        const errTxt = await pumpRes.text();
+        console.error('PumpPortal Error:', errTxt);
+        submissionStatus.innerText = "PumpPortal Error: " + errTxt;
+        return;
+      }
+    
+      const txBytes = await pumpRes.arrayBuffer();
+      const txBase64 = arrayBufferToBase64(txBytes);
+      console.log('Received transaction from PumpPortal:', txBase64);
+    
+      let signature;
+      try {
+        ({ signature } = await signAndSendVersionedTransaction(txBase64, mintKeypair));
+      } catch (e) {
+        console.error('Signing/Sending Transaction Error:', e);
+        submissionStatus.innerText = "Error signing/sending transaction.";
+        return;
+      }
+    
+      console.log('Transaction Signature:', signature);
+      console.log(`View on Solscan: https://solscan.io/tx/${signature}`);
+    
+      const confirmRes = await fetch(backendUrl+'/confirm-creation', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({submissionId, txSignature: signature, mintAddress: mintPubkeyStr, memo})
+      });
+      
+      if (!confirmRes.ok) {
+        const errTxt = await confirmRes.text();
+        console.error('Backend Confirm-Creation Error:', errTxt);
+        submissionStatus.innerText = "Backend Error: " + errTxt;
+        return;
+      }
+    
+      const confirmData = await confirmRes.json();
+      console.log('Backend Confirm-Creation Response:', confirmData);
+      if (!confirmRes.ok) {
+        submissionStatus.innerText = "Error: " + confirmData.message;
+        return;
+      }
+    
+      submissionStatus.innerText = "Meme submission completed and active! Submission ID: " + submissionId;
+      console.log('Meme submission successful.');
+    };
+    
+    upvoteBtn.onclick = async () => {
+      upvoteStatus.innerText = "";
+      if (!userPublicKey) {
+        alert("Connect wallet first");
+        return;
+      }
+    
+      const submissionId = submissionIdInput.value.trim();
+      if (!submissionId) {
+        alert("Enter a submission ID");
+        return;
+      }
+    
+      const mintAddress = prompt("Enter the token mint address for this meme:");
+      if (!mintAddress) {
+        alert("No mint address provided.");
+        return;
+      }
+    
+      const buyPayload = {
+        publicKey: userPublicKey,
+        action: 'buy',
+        mint: mintAddress,
+        amount: 0.01, // Adjust as needed
+        denominatedInSol: 'true',
+        slippage: 10,
+        priorityFee: 0.0005,
+        pool: 'pump'
+      };
+    
+      console.log('Buy Payload being sent to PumpPortal:', JSON.stringify(buyPayload, null, 2));
+    
+      let pumpRes;
+      try {
+        pumpRes = await fetch('https://pumpportal.fun/api/trade-local', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(buyPayload)
+        });
+        console.log('PumpPortal Buy Response Status:', pumpRes.status);
+      } catch (e) {
+        console.error('Fetch Buy Error:', e);
+        upvoteStatus.innerText = "Error fetching upvote tx from PumpPortal";
+        return;
+      }
+    
+      if (!pumpRes.ok) {
+        const errTxt = await pumpRes.text();
+        console.error('PumpPortal Buy Error:', errTxt);
+        upvoteStatus.innerText = "PumpPortal Buy Error: " + errTxt;
+        return;
+      }
+    
+      const txBytes = await pumpRes.arrayBuffer();
+      const txBase64 = arrayBufferToBase64(txBytes);
+      console.log('Received buy transaction from PumpPortal:', txBase64);
+    
+      let signature;
+      try {
+        // For upvotes, no mintKeypair is needed
+        ({ signature } = await signAndSendVersionedTransaction(txBase64, null));
+      } catch (e) {
+        console.error('Signing/Sending Buy Transaction Error:', e);
+        upvoteStatus.innerText = "Error signing/sending upvote transaction.";
+        return;
+      }
+    
+      console.log('Upvote Transaction Signature:', signature);
+      console.log(`View on Solscan: https://solscan.io/tx/${signature}`);
+    
+      const confUpvote = await fetch(backendUrl+'/confirm-upvote', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({submissionId, userPubKey:userPublicKey, txSignature: signature})
+      });
+    
+      if (!confUpvote.ok) {
+        const errTxt = await confUpvote.text();
+        console.error('Backend Confirm-Upvote Error:', errTxt);
+        upvoteStatus.innerText = "Backend Error: " + errTxt;
+        return;
+      }
+    
+      const confData = await confUpvote.json();
+      console.log('Backend Confirm-Upvote Response:', confData);
+      if (!confUpvote.ok) {
+        upvoteStatus.innerText = "Error: " + confData.message;
+        return;
+      }
+    
+      upvoteStatus.innerText = "Upvote recorded!";
+      console.log('Upvote recorded successfully.');
+    };
+  </script>
 </body>
 </html>

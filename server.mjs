@@ -1,3 +1,4 @@
+// server.js
 import 'dotenv/config';
 import express from 'express';
 import { createClient } from '@supabase/supabase-js';
@@ -12,7 +13,10 @@ app.use(express.static('public'));
 // Confirm creation
 app.post('/confirm-creation', async (req, res) => {
   const { submissionId, txSignature, mintAddress, memo } = req.body;
+  console.log('Received /confirm-creation request:', req.body);
+  
   if (!submissionId || !txSignature || !mintAddress || !memo) {
+    console.error('Missing parameters in /confirm-creation:', req.body);
     return res.status(400).json({message:"Missing parameters"});
   }
 
@@ -21,17 +25,21 @@ app.post('/confirm-creation', async (req, res) => {
     .insert([{id: submissionId, memo, status:'active', token_mint:mintAddress, creation_tx:txSignature}]);
 
   if (error) {
-    console.error(error);
+    console.error('Supabase Insert Error in /confirm-creation:', error);
     return res.status(500).json({message:"DB insert error"});
   }
 
+  console.log('Meme submission recorded:', data);
   return res.json({message:"Meme is now active"});
 });
 
 // Confirm upvote
 app.post('/confirm-upvote', async (req, res) => {
   const { submissionId, userPubKey, txSignature } = req.body;
+  console.log('Received /confirm-upvote request:', req.body);
+  
   if (!submissionId || !userPubKey || !txSignature) {
+    console.error('Missing parameters in /confirm-upvote:', req.body);
     return res.status(400).json({message:"Missing parameters"});
   }
 
@@ -40,10 +48,11 @@ app.post('/confirm-upvote', async (req, res) => {
     .insert([{submission_id: submissionId, user_pubkey:userPubKey, tx_sig:txSignature}]);
 
   if (error) {
-    console.error(error);
+    console.error('Supabase Insert Error in /confirm-upvote:', error);
     return res.status(500).json({message:"DB insert error"});
   }
 
+  console.log('Upvote recorded:', data);
   return res.json({message:"Upvote recorded"});
 });
 
